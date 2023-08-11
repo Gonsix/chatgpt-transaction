@@ -1,6 +1,8 @@
 'use client'
 import type OpenAI from 'openai'
 import { useEffect, useRef, useState } from 'react'
+import Web3Button from './Web3Button'
+import { ethers, providers } from 'ethers';
 
 const Form = ({ modelsList }: { modelsList: OpenAI.ModelsPage }) => {
   const messageInput = useRef<HTMLTextAreaElement | null>(null)
@@ -12,7 +14,7 @@ const Form = ({ modelsList }: { modelsList: OpenAI.ModelsPage }) => {
   const [isLoading, setIsLoading] = useState<boolean>(false)
   // const [models, setModels] = useState<ModelType[]>([])
   const [models, setModels] = useState(modelsList.data)
-  const [currentModel, setCurrentModel] = useState<string>('gpt-4')
+  const [currentModel, setCurrentModel] = useState<string>('gpt-3.5-turbo')
 
   const handleEnter = (
     e: React.KeyboardEvent<HTMLTextAreaElement> &
@@ -36,7 +38,7 @@ const Form = ({ modelsList }: { modelsList: OpenAI.ModelsPage }) => {
     if (!message) {
       return
     }
-
+    // CORS ポリシーによってhttps://chatgpt.shivanshu.in/api/responseへのアクセスはブロックされている。つまりAPIタダ乗りはできない。
     const response = await fetch('/api/response', {
       method: 'POST',
       headers: {
@@ -67,7 +69,7 @@ const Form = ({ modelsList }: { modelsList: OpenAI.ModelsPage }) => {
     setHistory((prev) => [...prev, message])
 
     let currentResponse: string[] = []
-    while (!done) {
+    while (!done) { // Response を逐次表示
       const { value, done: doneReading } = await reader.read()
       done = doneReading
       const chunkValue = decoder.decode(value)
@@ -76,7 +78,45 @@ const Form = ({ modelsList }: { modelsList: OpenAI.ModelsPage }) => {
       setHistory((prev) => [...prev.slice(0, -1), currentResponse.join('')])
       console.log('rerender')
     }
-    console.log('rerender-2')
+    console.log("Final currentResponse:", currentResponse);
+    console.log("Response:", currentResponse.join(''))
+    const outputContent = currentResponse.join('');
+    const result = outputContent.match(/0x.*/)[0].split(" "); // 警告が出るが、問題無く動作する
+    
+    const toAddress = result[0]
+    const _amount = result[1]
+    const amount = ethers.utils.parseEther(_amount);
+
+    if (typeof window.ethereum !== 'undefined' || (typeof window.web3 !== 'undefined')) {
+      const provider = new ethers.providers.Web3Provider(window.ethereum || window.web3.currentProvider);
+    
+      // サインインユーザーのウォレットに接続
+      provider.getSigner().getAddress().then((address) => {
+        console.log('Connected with address:', address);
+    
+        // トランザクションの設定
+        const transaction = {
+          to: toAddress,
+          value: amount
+        };
+    
+        // トランザクションの送信
+        provider.getSigner().sendTransaction(transaction).then((tx) => {
+          console.log('Transaction sent:', tx);
+          tx.wait().then((receipt) => {
+            console.log('Transaction confirmed:', receipt);
+          }).catch((error) => {
+            console.error('Error confirming the transaction:', error);
+          });
+        }).catch((error) => {
+          console.error('Error sending the transaction:', error);
+        });
+      }).catch((error) => {
+        console.error('Error getting address:', error);
+      });
+    } else {
+      console.error('MetaMask not found');
+    }
     // breaks text indent on refresh due to streaming
     // localStorage.setItem('response', JSON.stringify(history))
     setIsLoading(false)
@@ -105,6 +145,7 @@ const Form = ({ modelsList }: { modelsList: OpenAI.ModelsPage }) => {
   }
 
   return (
+    
     <div className='flex justify-center'>
       <select
         value={currentModel}
@@ -125,7 +166,13 @@ const Form = ({ modelsList }: { modelsList: OpenAI.ModelsPage }) => {
       >
         Clear History
       </button>
-      <div className='w-full mx-2 flex flex-col items-start gap-3 pt-6 last:mb-6 md:mx-auto md:max-w-3xl'>
+      {/* <button>
+        metamask
+      </button> */}
+      <div className="fixed top-5 right-48">
+        <Web3Button />
+      </div>
+      <div className='top-10 w-full mx-2 flex flex-col items-start gap-3 pt-6 last:mb-6 md:mx-auto md:max-w-3xl'>
         {isLoading
           ? history.map((item: any, index: number) => {
               return (
